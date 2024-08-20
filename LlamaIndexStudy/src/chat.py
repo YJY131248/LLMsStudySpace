@@ -7,8 +7,6 @@ from llama_index.core.llms import ChatMessage
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from llama_index.llms.huggingface import HuggingFaceLLM
 from utils import messages_to_prompt, completion_to_prompt
-from collections import defaultdict
-from tqdm import tqdm
 
 # 设置忽略警告
 warnings.filterwarnings("ignore")
@@ -43,23 +41,19 @@ Settings.llm = HuggingFaceLLM(
     device_map="auto"
 )
 
-def get_qa_data(documents_path):
-    # 遍历jsonl文件，读取question和answer
-    qa_data_mp = defaultdict(list)
-    with open(documents_path, 'r', encoding="utf-8") as f:
-        for line in f:
-            sample = json.loads(line)
-            qa_data_mp['question'].append(sample["question"])
-            qa_data_mp['reference_answer'].append(sample["reference_answer"])
-    return qa_data_mp
-
-def get_documents(documents_path):
-    # 遍历jsonl文件，读取reference_context字段
+def get_documents_qa_data(documents_path):
+    # 遍历jsonl文件，读取reference_context、question、reference_answer字段
     text_list = []
+    qa_data_mp = []
     with open(documents_path, 'r', encoding="utf-8") as f:
         for line in f:
             sample = json.loads(line)
-            text_list.append(sample["reference_context"])
+            if sample["reference_context"] not in text_list:
+                text_list.append(sample["reference_context"])
+            qa_data_mp.append({
+                "question": sample["question"],
+                "reference_answer": sample["reference_answer"]
+            })
     # 构建Document对象列表
     documents = [Document(text=t) for t in text_list]
     """
@@ -72,7 +66,7 @@ def get_documents(documents_path):
     if len(documents) == 0:
         logger.warning('documents list length::: 0')
     logger.info('documents build successfully!')
-    return documents
+    return documents, qa_data_mp
 
 
 def get_nodes_from_documents_by_chunk(documents):
@@ -126,16 +120,15 @@ def main():
     documents_path = '../data/cmrc-eval-zh.jsonl'
     store_path = '../store/'
     # 加载文档
-    documents = get_documents(documents_path)
-    qa_data_mp = get_qa_data(documents_path)
+    documents, qa_data_mp = get_documents_qa_data(documents_path)
     # 进行chunk
     nodes = get_nodes_from_documents_by_chunk(documents)
     # 构建向量索引
     index = get_vector_index(nodes=nodes, store_path=store_path, use_store=True)
     # 获取检索增强的llm回复
-    for i in tqdm(range(len(qa_data_mp))):
-        query = qa_data_mp["question"][i]
-        reference_answer = qa_data_mp["reference_answer"][i]
+    for qa_data in qa_data_mp:
+        query = qa_data["question"]
+        reference_answer = qa_data["reference_answer"]
         llm_resp = get_llm_answer_with_rag(query, index, use_rag=True)
         print("query::: {}".format(query))
         print("reference answer::: {}".format(reference_answer))
