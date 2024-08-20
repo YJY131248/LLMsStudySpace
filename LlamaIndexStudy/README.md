@@ -169,8 +169,8 @@ from utils import messages_to_prompt, completion_to_prompt
 
 # 设置llm(Qwen2-7B-Instruct)
 Settings.llm = HuggingFaceLLM(
-    model_name="../../../model/Qwen1.5-7B-Chat",
-    tokenizer_name="../../../model/Qwen1.5-7B-Chat",
+    model_name="../../../model/Qwen2-7B-Instruct",
+    tokenizer_name="../../../model/Qwen2-7B-Instruct",
     context_window=30000,
     max_new_tokens=2000,
     generate_kwargs={
