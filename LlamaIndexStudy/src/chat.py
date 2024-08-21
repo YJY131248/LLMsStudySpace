@@ -4,6 +4,10 @@ import logging
 from llama_index.core import Settings, Document, SimpleDirectoryReader, VectorStoreIndex, StorageContext, load_index_from_storage
 from llama_index.core.node_parser import SimpleNodeParser
 from llama_index.core.llms import ChatMessage
+from llama_index.core.retrievers import VectorIndexRetriever
+from llama_index.core.query_engine import RetrieverQueryEngine
+from llama_index.core.indices.postprocessor import SimilarityPostprocessor
+from llama_index.postprocessor.flag_embedding_reranker import FlagEmbeddingReranker
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from llama_index.llms.huggingface import HuggingFaceLLM
 from utils import messages_to_prompt, completion_to_prompt
@@ -41,7 +45,7 @@ Settings.llm = HuggingFaceLLM(
     device_map="auto"
 )
 
-def get_documents_qa_data(documents_path):
+def get_documents_qa_data(documents_path: str):
     # 遍历jsonl文件，读取reference_context、question、reference_answer字段
     text_list = []
     qa_data_mp = []
@@ -69,7 +73,7 @@ def get_documents_qa_data(documents_path):
     return documents, qa_data_mp
 
 
-def get_nodes_from_documents_by_chunk(documents):
+def get_nodes_from_documents_by_chunk(documents: list):
     # 对文本进行chunk
     node_paeser = SimpleNodeParser.from_defaults(chunk_size=1024)
     # [node1,node2,...] 每个node的结构为{'Node_ID':xxx, 'Text':xxx}
@@ -81,7 +85,7 @@ def get_nodes_from_documents_by_chunk(documents):
     return nodes
 
 
-def get_vector_index(nodes=None, documents=None, store_path='../store/', use_store=True):
+def get_vector_index(nodes=None, documents=None, store_path: str='../store/', use_store: bool=True):
     # 如果已经进行过持久化数据库的存储，则直接加载
     if use_store:
         storage_context = StorageContext.from_defaults(persist_dir=store_path)
@@ -105,11 +109,31 @@ def get_vector_index(nodes=None, documents=None, store_path='../store/', use_sto
     return index
 
 
-def get_llm_answer_with_rag(query, index, use_rag=True):
-    if use_rag:
-        query_engine = index.as_query_engine()
-        resp = query_engine.query(query).response
+def get_llm_answer_with_rag(query: str, index=None, use_retrieval: bool=True, use_rerank: bool=True):
+    # 使用检索
+    if use_retrieval:
+        # 自定义retriever
+        retriever = VectorIndexRetriever(
+            index=index,
+            similarity_top_k=10,
+        )
+        node_postprocessors=[SimilarityPostprocessor(similarity_cutoff=0.5)]
+        # 使用rerank（基于bge_rerank）
+        if use_rerank:
+            reranker = FlagEmbeddingReranker(
+                model="../../../model/bge-reranker-base", 
+                top_n=5
+            )
+            node_postprocessors.append(reranker)
+        # 构建query_engine
+        query_engine = RetrieverQueryEngine(
+            retriever=retriever,
+            node_postprocessors=node_postprocessors
+        )
+        # 获取大模型的response
+        resp = query_engine.query(query)
         logger.info('use rag, query:::{}, resp:::{}'.format(query, resp))
+    # 不使用RAG, 直接由LLMs进行输出
     else:
         resp = Settings.llm.chat(messages=[ChatMessage(content=query)])
         logger.info('not use rag, query:::{}, resp:::{}'.format(query, resp))
@@ -126,14 +150,19 @@ def main():
     # 构建向量索引
     index = get_vector_index(nodes=nodes, store_path=store_path, use_store=True)
     # 获取检索增强的llm回复
-    for qa_data in qa_data_mp:
+    for idx, qa_data in enumerate(qa_data_mp):
+        if idx > 2:
+            break
         query = qa_data["question"]
         reference_answer = qa_data["reference_answer"]
-        llm_resp = get_llm_answer_with_rag(query, index, use_rag=True)
+        llm_resp = get_llm_answer_with_rag(query, index, use_retrieval=True, use_rerank=True)
         print("query::: {}".format(query))
         print("reference answer::: {}".format(reference_answer))
-        print("answer::: {}".format(llm_resp))
+        print("answer::: {}".format(llm_resp.response))
+        print("source_nodes::: {}".format(llm_resp.source_nodes))
+        print("formatted_sources::: {}".format(llm_resp.get_formatted_sources()))
         print("*"*100)
+        
 
 
 if __name__ == "__main__":
