@@ -162,8 +162,15 @@ def get_vector_index(nodes=None, documents=None, store_path='../store/', use_sto
 接下来，我们在代码中设置将要使用的LLMs，本文选择通义千问的**Qwen2-7B-Instruct**模型，在第一节中也已经下载至本地，通过**HuggingFaceLLM**设置。（其他大模型的使用方式也是类似，如果是OpenAI的大模型则不使用该方式，此类教程很多，本文不在赘述）
 
 下面的代码中，首先使用**HuggingFaceLLM**设置通义千问大模型；同时根据通义千问的官方文档中的LlamaIndex使用demo，完成**messages_to_prompts和completion_to_prompt**两个函数的设置(新起一个utils.py用于存放着两个函数)
+
+在**get_llm_answer_with_rag**函数中，首先通过**use_rag**开关判断是否需要rag，如果开关关闭则直接使用大模型进行回复（Settings.llm.chat(messages=[ChatMessage(content=query)])），如果开关打开，则使用自定义的retriever或默认的检索流程。自定义retriever通过**VectorIndexRetriever**定义，**node_postprocessors**中定义了参考信息的约束条件
+
+
 ```python
 from llama_index.core.llms import ChatMessage
+from llama_index.core.retrievers import VectorIndexRetriever
+from llama_index.core.query_engine import RetrieverQueryEngine
+from llama_index.core.indices.postprocessor import SimilarityPostprocessor
 from llama_index.llms.huggingface import HuggingFaceLLM
 from utils import messages_to_prompt, completion_to_prompt
 
@@ -183,11 +190,26 @@ Settings.llm = HuggingFaceLLM(
     device_map="auto"
 )
 
-def get_llm_answer_with_rag(query, index, use_rag=True):
+def get_llm_answer_with_rag(query, index, retriever=None, use_rag=True):
+    # 使用RAG
     if use_rag:
-        query_engine = index.as_query_engine()
-        resp = query_engine.query(query).response
+        # 自定义retriever
+        if retriever is not None:
+            retriever = VectorIndexRetriever(
+                index=index,
+                similarity_top_k=2,
+            )
+            query_engine = RetrieverQueryEngine(
+                retriever=retriever,
+                node_postprocessors=[
+                    SimilarityPostprocessor(similarity_cutoff=0.7)
+                ]
+            )
+        else:
+            query_engine = index.as_query_engine()
+        resp = query_engine.query(query)
         logger.info('use rag, query:::{}, resp:::{}'.format(query, resp))
+    # 直接由LLMs进行输出
     else:
         resp = Settings.llm.chat(messages=[ChatMessage(content=query)])
         logger.info('not use rag, query:::{}, resp:::{}'.format(query, resp))
@@ -220,8 +242,6 @@ def completion_to_prompt(completion):
 ### 3.4 main函数
 最后，我们在main函数里面讲前面的整个链路打通，同时我们也从**cmrc-eval-zh.jsonl**中读取qa对
 ```python
-from collections import defaultdict
-
 def main():
     documents_path = '../data/cmrc-eval-zh.jsonl'
     store_path = '../store/'
@@ -230,15 +250,19 @@ def main():
     # 进行chunk
     nodes = get_nodes_from_documents_by_chunk(documents)
     # 构建向量索引
-    index = get_vector_index(nodes=nodes, store_path=store_path, use_store=False)
+    index = get_vector_index(nodes=nodes, store_path=store_path, use_store=True)
     # 获取检索增强的llm回复
-    for qa_data in qa_data_mp:
+    for idx, qa_data in enumerate(qa_data_mp):
+        if idx > 2:
+            break
         query = qa_data["question"]
         reference_answer = qa_data["reference_answer"]
         llm_resp = get_llm_answer_with_rag(query, index, use_rag=True)
         print("query::: {}".format(query))
         print("reference answer::: {}".format(reference_answer))
-        print("answer::: {}".format(llm_resp))
+        print("answer::: {}".format(llm_resp.response))
+        print("source_nodes::: {}".format(llm_resp.source_nodes))
+        print("formatted_sources::: {}".format(llm_resp.get_formatted_sources()))
         print("*"*100)
         
        
@@ -248,6 +272,8 @@ if __name__ == "__main__":
 运行后结果如下：
 
 ![image](https://github.com/YJY131248/LLMsStudySpace/blob/main/LlamaIndexStudy/img/4-res.png)
+
+![image](https://github.com/YJY131248/LLMsStudySpace/blob/main/LlamaIndexStudy/img/5-res.png)
 
 # 参考
 1. [LlamaIndex官方文档](https://llama-index.readthedocs.io/zh/latest/index.html)
