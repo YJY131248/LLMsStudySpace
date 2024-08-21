@@ -1,6 +1,11 @@
 # RAG框架快速构建（based on Qwen2-7B-Instruct）
 
-> 基于**LlamaIndex**框架，以**Qwen2-7B-Instruct**作为大模型底座，**bge-base-zh-v1.5**作为embedding模型，构建RAG基础链路。数据集选用**cmrc2018**数据集（该数据集禁止商用）
+
+>- RAG框架：**LlamaIndex** 
+>- 大模型底座：**Qwen2-7B-Instruct** 
+>- Embedding模型：**bge-base-zh-v1.5** 
+>- Rerank模型：**bge-reranker-base** 
+>- 数据集：**cmrc2018**（该数据集禁止商用）
 
 
 ## 1. 环境准备
@@ -9,6 +14,8 @@
 pip install llama-index
 pip install llama-index-llms-huggingface
 pip install llama-index-embeddings-huggingface
+pip install llama-index-postprocessor-flag-embedding-reranker
+pip install FlagEmbedding
 pip install datasets
 ```
 从Hugging Face安装将要使用的LLMs以及embedding model，这里我们选择**Qwen/Qwen2-7B-Instruct**作为大模型底座，选择**BAAI/bge-base-zh-v1.5**作为embedding模型，用于对文档进行向量化表征
@@ -23,6 +30,7 @@ export HF_ENDPOINT="https://hf-mirror.com"
 3. 安装相应的模型(以Qwen2-7B-Instruct为例，前面是huggingface上的模型名，后面是本地下载的路径)
 huggingface-cli download Qwen/Qwen2-7B-Instruct --local-dir ./Qwen2-7B-Instruct
 huggingface-cli download BAAI/bge-base-zh-v1.5 --local-dir ./bge-base-zh-v1.5
+huggingface-cli download BAAI/bge-reranker-base --local-dir ./bge-reranker-base
 ```
 
 ## 2. 数据准备
@@ -70,7 +78,7 @@ logger = logging.getLogger(__name__)
 ```python
 from llama_index.core import Document, SimpleDirectoryReader
 
-def get_documents_qa_data(documents_path):
+def get_documents_qa_data(documents_path: str):
     # 遍历jsonl文件，读取reference_context、question、reference_answer字段
     text_list = []
     qa_data_mp = []
@@ -99,10 +107,11 @@ def get_documents_qa_data(documents_path):
 ```
 
 考虑到实际RAG应用场景中，很多文档的长度过长，一方面**难以直接放入LLM的上下文**中，另一方面在**可能导致检索过程忽略一些相关的内容导致参考信息质量不够**，一般会采用对文本进行**chunk**的操作，将一段长文本切分成多个小块，这些小块在LlamaIndex中表示为**Node**节点。上述过程代码如下，我们将documents传入到下面定义的函数中，通过**SimpleNodeParser**对文本进行切块，并设置chunk的**size为1024**
+
 ```python
 from llama_index.core.node_parser import SimpleNodeParser
 
-def get_nodes_from_documents_by_chunk(documents):
+def get_nodes_from_documents_by_chunk(documents: list):
     # 对文本进行chunk
     node_paeser = SimpleNodeParser.from_defaults(chunk_size=1024)
     # [node1,node2,...] 每个node的结构为{'Node_ID':xxx, 'Text':xxx}
@@ -120,7 +129,7 @@ def get_nodes_from_documents_by_chunk(documents):
 - 基于**向量相似度**的检索（embedding+relevance computing，例如**bge**等模型）
 
 本文对前面构建的node节点中的文本进行**向量化表征**（基于**BAAI/bge-base-zh-v1.5**），然后构建每个node的索引，这里的embedding模型我们在第一节环境准备过程中已经下载至本地目录
-此外，在构建索引后，可以使用**StorageContext**将index存储到本地空间，后续调用get_vector_index时可以先判断本地是否有存储过storage_context，如果有则直接加载即可（通过**load_index_from_storage**），如果没有则通过传入的nodes参数再次构建向量索引
+此外，在构建索引后，可以使用**StorageContext**将index存储到本地空间，后续调用**get_vector_index**时可以先判断本地是否有存储过storage_context，如果有则直接加载即可（通过**load_index_from_storage**），如果没有则通过传入的nodes参数再次构建向量索引
 
 ```python
 from llama_index.core import Settings, VectorStoreIndex, StorageContext, load_index_from_storage
@@ -131,7 +140,7 @@ Settings.embed_model = HuggingFaceEmbedding(
     model_name = "../../../model/bge-base-zh-v1.5"
 )
 
-def get_vector_index(nodes=None, documents=None, store_path='../store/', use_store=True):
+def get_vector_index(nodes=None, documents=None, store_path: str='../store/', use_store: bool=True):
     # 如果已经进行过持久化数据库的存储，则直接加载
     if use_store:
         storage_context = StorageContext.from_defaults(persist_dir=store_path)
@@ -163,58 +172,6 @@ def get_vector_index(nodes=None, documents=None, store_path='../store/', use_sto
 
 下面的代码中，首先使用**HuggingFaceLLM**设置通义千问大模型；同时根据通义千问的官方文档中的LlamaIndex使用demo，完成**messages_to_prompts和completion_to_prompt**两个函数的设置(新起一个utils.py用于存放着两个函数)
 
-在**get_llm_answer_with_rag**函数中，首先通过**use_rag**开关判断是否需要rag，如果开关关闭则直接使用大模型进行回复（Settings.llm.chat(messages=[ChatMessage(content=query)])），如果开关打开，则使用自定义的retriever或默认的检索流程。自定义retriever通过**VectorIndexRetriever**定义，**node_postprocessors**中定义了参考信息的约束条件
-
-
-```python
-from llama_index.core.llms import ChatMessage
-from llama_index.core.retrievers import VectorIndexRetriever
-from llama_index.core.query_engine import RetrieverQueryEngine
-from llama_index.core.indices.postprocessor import SimilarityPostprocessor
-from llama_index.llms.huggingface import HuggingFaceLLM
-from utils import messages_to_prompt, completion_to_prompt
-
-# 设置llm(Qwen2-7B-Instruct)
-Settings.llm = HuggingFaceLLM(
-    model_name="../../../model/Qwen2-7B-Instruct",
-    tokenizer_name="../../../model/Qwen2-7B-Instruct",
-    context_window=30000,
-    max_new_tokens=2000,
-    generate_kwargs={
-        "temperature": 0.7,
-        "top_k": 50, 
-        "top_p": 0.95
-    },
-    messages_to_prompt=messages_to_prompt,
-    completion_to_prompt=completion_to_prompt,
-    device_map="auto"
-)
-
-def get_llm_answer_with_rag(query, index, retriever=None, use_rag=True):
-    # 使用RAG
-    if use_rag:
-        # 自定义retriever
-        if retriever is not None:
-            retriever = VectorIndexRetriever(
-                index=index,
-                similarity_top_k=2,
-            )
-            query_engine = RetrieverQueryEngine(
-                retriever=retriever,
-                node_postprocessors=[
-                    SimilarityPostprocessor(similarity_cutoff=0.7)
-                ]
-            )
-        else:
-            query_engine = index.as_query_engine()
-        resp = query_engine.query(query)
-        logger.info('use rag, query:::{}, resp:::{}'.format(query, resp))
-    # 直接由LLMs进行输出
-    else:
-        resp = Settings.llm.chat(messages=[ChatMessage(content=query)])
-        logger.info('not use rag, query:::{}, resp:::{}'.format(query, resp))
-    return resp
-```
 
 ```python
 # utils.py
@@ -239,6 +196,71 @@ def completion_to_prompt(completion):
    return f"<|im_start|>system\n<|im_end|>\n<|im_start|>user\n{completion}<|im_end|>\n<|im_start|>assistant\n"
 ```
 
+**get_llm_answer_with_rag**函数具体流程详解：
+- **检索Retrieval：** 通过**use_retrieval**开关判断是否需要进行检索（即是否走RAG流程）
+  - 如果开关关闭，直接使用大模型进行回复（**Settings.llm.chat**）
+  - 如果开关打开，通过**VectorIndexRetriever**构建自定义的**retriever**
+- **重排序Rerank：**通过**use_rerank**判断是否需要进行rerank
+  - 如果开关打开，通过**FlagEmbeddingReranker**构建自定义的**reranker**（基于**bge-reranker-base**）
+- **检索后处理PostProcessor：**通过**node_postprocessors**定义了参考信息的约束条件（相似度阈值、reranker等）
+
+```python
+from llama_index.core.llms import ChatMessage
+from llama_index.core.retrievers import VectorIndexRetriever
+from llama_index.core.query_engine import RetrieverQueryEngine
+from llama_index.core.indices.postprocessor import SimilarityPostprocessor
+from llama_index.postprocessor.flag_embedding_reranker import FlagEmbeddingReranker
+from llama_index.llms.huggingface import HuggingFaceLLM
+from utils import messages_to_prompt, completion_to_prompt
+
+# 设置llm(Qwen2-7B-Instruct)
+Settings.llm = HuggingFaceLLM(
+    model_name="../../../model/Qwen2-7B-Instruct",
+    tokenizer_name="../../../model/Qwen2-7B-Instruct",
+    context_window=30000,
+    max_new_tokens=2000,
+    generate_kwargs={
+        "temperature": 0.7,
+        "top_k": 50, 
+        "top_p": 0.95
+    },
+    messages_to_prompt=messages_to_prompt,
+    completion_to_prompt=completion_to_prompt,
+    device_map="auto"
+)
+
+def get_llm_answer_with_rag(query: str, index=None, use_retrieval: bool=True, use_rerank: bool=True):
+    # 使用检索
+    if use_retrieval:
+        # 自定义retriever
+        retriever = VectorIndexRetriever(
+            index=index,
+            similarity_top_k=10,
+        )
+        node_postprocessors=[SimilarityPostprocessor(similarity_cutoff=0.5)]
+        # 使用rerank（基于bge_rerank）
+        if use_rerank:
+            reranker = FlagEmbeddingReranker(
+                model="../../../model/bge-reranker-base", 
+                top_n=5
+            )
+            node_postprocessors.append(reranker)
+        # 构建query_engine
+        query_engine = RetrieverQueryEngine(
+            retriever=retriever,
+            node_postprocessors=node_postprocessors
+        )
+        # 获取大模型的response
+        resp = query_engine.query(query)
+        logger.info('use rag, query:::{}, resp:::{}'.format(query, resp))
+    # 不使用RAG, 直接由LLMs进行输出
+    else:
+        resp = Settings.llm.chat(messages=[ChatMessage(content=query)])
+        logger.info('not use rag, query:::{}, resp:::{}'.format(query, resp))
+    return resp
+
+```
+
 ### 3.4 main函数
 最后，我们在main函数里面讲前面的整个链路打通，同时我们也从**cmrc-eval-zh.jsonl**中读取qa对
 ```python
@@ -253,11 +275,9 @@ def main():
     index = get_vector_index(nodes=nodes, store_path=store_path, use_store=True)
     # 获取检索增强的llm回复
     for idx, qa_data in enumerate(qa_data_mp):
-        if idx > 2:
-            break
         query = qa_data["question"]
         reference_answer = qa_data["reference_answer"]
-        llm_resp = get_llm_answer_with_rag(query, index, use_rag=True)
+        llm_resp = get_llm_answer_with_rag(query, index, use_retrieval=True, use_rerank=True)
         print("query::: {}".format(query))
         print("reference answer::: {}".format(reference_answer))
         print("answer::: {}".format(llm_resp.response))
