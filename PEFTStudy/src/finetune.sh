@@ -1,4 +1,4 @@
-mlx worker launch -- python3 finetune.py \
+python3 finetune.py \
     --peft_type lora \
     --llm_model_name Qwen \
     --llm_model_path ../../../model/Qwen2-7B-Instruct \
