@@ -36,10 +36,13 @@ class FinetuneArguments:
 
 
 # 加载LLMs model/tokenizer
-def get_base_llm_model_tokenizer(finetune_args):
+def get_base_llm_model_tokenizer(finetune_args, merge_model_path=None, use_merge_model=False):
     # 读取模型类型
     llm_model_name = finetune_args.llm_model_name
     llm_model_path = finetune_args.llm_model_path
+    # 如果use_merge_model为True，替换llm_model_path
+    if use_merge_model:
+        llm_model_path = merge_model_path if merge_model_path else finetune_args.llm_model_path
     # 加载llm_model
     if llm_model_name == "Qwen" or llm_model_name == "BaiChuan":
         model = AutoModelForCausalLM.from_pretrained(llm_model_path, low_cpu_mem_usage=True, torch_dtype=torch.half)
