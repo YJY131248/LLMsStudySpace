@@ -157,13 +157,6 @@ def main():
     finetune_train(model=llm_model, peft_config=peft_config, tokenizer=llm_tokenizer, dataset=tokenizer_dataset, train_args=training_args)
     logger.info('Train end! LoRA model saves in the path:::{}'.format(training_args.output_dir))
 
-    # # 合并LoRA参数
-    # qwen_model = qwen_model.cuda()
-    # lora_model = PeftModel.from_pretrained(qwen_model, model_id=)
-    # mergemodel = model.merge_and_unload()
-    # mergemodel.save_pretrained("./merge_model")
-
-
 
 if __name__ == "__main__":
     main()
