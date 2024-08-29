@@ -24,8 +24,6 @@ def main():
         (MergeModelArguments)
     ).parse_args_into_dataclasses()[0]
 
-    print(merge_model_args.__repr__())
-
     # 设置logger
     logging.basicConfig(
         level=logging.DEBUG,
@@ -42,17 +40,20 @@ def main():
     logger.debug(merge_model_args.__repr__())
 
     # 加载模型
-    llm_model, llm_tokenizer = get_base_llm_model_tokenizer(merge_model_args)
+    llm_model, _ = get_base_llm_model_tokenizer(merge_model_args)
     logger.info('Base LLMs {} load successfully! LLM path::: {}'.format(merge_model_args.llm_model_name, merge_model_args.llm_model_path))
 
     # 加载微调的参数
     llm_model = llm_model.cuda()
     peft_model = PeftModel.from_pretrained(llm_model, model_id=merge_model_args.peft_checkpoint_path)
-    merge_model = peft_model.merge_and_unload()
+    if merge_model_args.peft_type == "lora":
+        merge_model = peft_model.merge_and_unload()
+    else:
+        merge_model = peft_model
     merge_model.save_pretrained(merge_model_args.merge_save_path)
     logger.info('Merge Model {} saved successfully! PEFT checkout path:::{}! Merge Model path::: {}'.format(
         merge_model_args.llm_model_name, 
-        merge_model.peft_checkpoint_path, 
+        merge_model_args.peft_checkpoint_path, 
         merge_model_args.merge_save_path)
     )
 
