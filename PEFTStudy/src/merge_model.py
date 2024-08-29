@@ -2,7 +2,8 @@ import logging
 import warnings
 from peft import PeftModel
 from transformers import HfArgumentParser
-from src.finetune import get_base_llm_model_tokenizer
+from dataclasses import dataclass, field
+from finetune import get_base_llm_model_tokenizer
 
 # 设置模型微调的参数类
 @dataclass
@@ -21,7 +22,9 @@ def main():
     # 加载命令行参数
     merge_model_args = HfArgumentParser(
         (MergeModelArguments)
-    ).parse_args_into_dataclasses()
+    ).parse_args_into_dataclasses()[0]
+
+    print(merge_model_args.__repr__())
 
     # 设置logger
     logging.basicConfig(
@@ -43,7 +46,7 @@ def main():
     logger.info('Base LLMs {} load successfully! LLM path::: {}'.format(merge_model_args.llm_model_name, merge_model_args.llm_model_path))
 
     # 加载微调的参数
-    llm_model = model.cuda()
+    llm_model = llm_model.cuda()
     peft_model = PeftModel.from_pretrained(llm_model, model_id=merge_model_args.peft_checkpoint_path)
     merge_model = peft_model.merge_and_unload()
     merge_model.save_pretrained(merge_model_args.merge_save_path)
