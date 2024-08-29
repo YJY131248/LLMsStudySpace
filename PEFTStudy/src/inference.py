@@ -7,7 +7,7 @@ from transformers import (
     AutoModelForCausalLM, 
     HfArgumentParser
 )
-from peft import PeftModel
+from peft import PeftModel, PeftModelForCausalLM
 from dataclasses import dataclass, field
 from finetune import get_base_llm_model_tokenizer
 
@@ -19,7 +19,7 @@ class InferenceArguments:
     llm_model_path: str = field(default="../../../model/Qwen2-7B-Instruct")
     peft_type: str = field(default="lora")
     merge_save_path: str = field(default="../out/merge_model/lora/")
-    use_merge_model: str = field(default='True')
+    use_merge_model: bool = field(default=False)
     log_path: str = field(default="../log/lora_output.log")
 
 
@@ -62,7 +62,7 @@ def get_peft_llm_model_tokenizer(inference_args):
 
         # 加载peft参数
         if inference_args.peft_type != "lora":
-            model = PeftModel.from_pretrained(model, model_id=peft_model_path)
+            model = PeftModelForCausalLM.from_pretrained(model, model_id=peft_model_path)
 
         # 加载tokenizer
         tokenizer = AutoTokenizer.from_pretrained(peft_model_path)
@@ -73,11 +73,10 @@ def get_peft_llm_model_tokenizer(inference_args):
     return model, tokenizer
     
 
-
 def get_llm_response(query_list: list[str], inference_args):
     # 加载模型
     llm_model, llm_tokenizer = get_peft_llm_model_tokenizer(inference_args)
-    llm_model.to('cuda')
+    llm_model = llm_model.cuda()
     llm_model.eval()
     logger.info('PEFT LLMs {} load successfully! LLM path::: {}'.format(inference_args.llm_model_name, inference_args.merge_save_path))
     # 设置message
@@ -88,11 +87,18 @@ def get_llm_response(query_list: list[str], inference_args):
             {"role": "user", "content": query}
         ]
         messages = llm_tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-        model_inputs = llm_tokenizer([messages], return_tensors="pt").to('cuda')
+        model_inputs = llm_tokenizer([messages], return_tensors="pt").to(llm_model.device)
+        generate_kwargs = {
+            "max_new_tokens": 1024,
+            "do_sample": False,
+            "top_p": 0.8,
+            "temperature": 0.8,
+            "repetition_penalty": 1.2,
+            "eos_token_id": llm_model.config.eos_token_id,
+        }
         generated_ids = llm_model.generate(
             model_inputs.input_ids,
-            max_new_tokens=512,
-            do_sample=False
+            **generate_kwargs
         )
         generated_ids = [
             output_ids[len(input_ids):] for input_ids, output_ids in zip(model_inputs.input_ids, generated_ids)
