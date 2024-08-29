@@ -15,8 +15,9 @@ from peft import (
     PromptEncoderConfig,
     PrefixTuningConfig,
     PromptTuningConfig,
-    PromptTuningInit,
-    TaskType, 
+    PromptTuningInit, 
+    PromptEncoderReparameterizationType,
+    TaskType,
     get_peft_model
 )
 from dataclasses import dataclass, field
@@ -64,6 +65,7 @@ def get_base_llm_model_tokenizer(finetune_args):
     model.enable_input_require_grads()
     model.is_parallelizable = True
     model.model_parallel = True
+    model.config.use_cache = False
     # 加载tokenizer
     tokenizer = AutoTokenizer.from_pretrained(llm_model_path)
 
@@ -71,7 +73,7 @@ def get_base_llm_model_tokenizer(finetune_args):
 
 
 # 根据peft类型返回相应的config
-def get_peft_config(finetune_args):
+def get_peft_config(finetune_args, tokenizer):
     # 读取peft类型
     peft_type = finetune_args.peft_type
     if peft_type == "lora":
@@ -87,23 +89,22 @@ def get_peft_config(finetune_args):
         peft_config = PromptEncoderConfig(
             task_type=TaskType.CAUSAL_LM, 
             num_virtual_tokens=10,
-            encoder_dropout=0.1, 
-            encoder_num_layers=5, 
-            encoder_hidden_size=512
+            encoder_reparameterization_type=PromptEncoderReparameterizationType.MLP,
+            encoder_hidden_size=1024
         )
     elif peft_type == "prefix-tuning":
         peft_config = PrefixTuningConfig(
             task_type=TaskType.CAUSAL_LM, 
-            num_virtual_tokens=10, 
+            num_virtual_tokens=10,
             prefix_projection=True
         )
     elif peft_type == "prompt-tuning":
         peft_config = PromptTuningConfig(
             task_type=TaskType.CAUSAL_LM,
             prompt_tuning_init=PromptTuningInit.TEXT,
-            num_virtual_tokens=10,
-            prompt_tuning_init_text="Classify if the tweet is a complaint or not:",  # 自行设置prompt
-            tokenizer_name_or_path=finetune_args.llm_model_path
+            prompt_tuning_init_text = "你是百科全书智能问答机器人。",
+            num_virtual_tokens = len(tokenizer("你是百科全书智能问答机器人。")["input_ids"]),
+            tokenizer_name_or_path = finetune_args.llm_model_path
         )
     else:
         logger.error("错误参数：peft类型必须为lora/p-tuning/prefix-tuning/prompt-tuning")
@@ -154,7 +155,7 @@ def main():
     logger.info('Base LLMs {} load successfully! LLM path::: {}'.format(finetune_args.llm_model_name, finetune_args.llm_model_path))
 
     # 获取peft_config参数
-    peft_config = get_peft_config(finetune_args)
+    peft_config = get_peft_config(finetune_args, llm_tokenizer)
     logger.info('Peft {} config load successfully!'.format(finetune_args.peft_type))
 
     # 加载数据
