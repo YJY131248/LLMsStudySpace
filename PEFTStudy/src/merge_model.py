@@ -40,17 +40,25 @@ def main():
     logger.debug(merge_model_args.__repr__())
 
     # 加载模型
-    llm_model, _ = get_base_llm_model_tokenizer(merge_model_args)
+    llm_model, llm_tokenizer = get_base_llm_model_tokenizer(merge_model_args)
     logger.info('Base LLMs {} load successfully! LLM path::: {}'.format(merge_model_args.llm_model_name, merge_model_args.llm_model_path))
 
     # 加载微调的参数
     llm_model = llm_model.cuda()
     peft_model = PeftModel.from_pretrained(llm_model, model_id=merge_model_args.peft_checkpoint_path)
+
+    # 如果是lora微调，则进行参数合并
     if merge_model_args.peft_type == "lora":
         merge_model = peft_model.merge_and_unload()
+    # 其他微调方式，保存微调参数
     else:
         merge_model = peft_model
+
+    # 保存model和tokenizer
     merge_model.save_pretrained(merge_model_args.merge_save_path)
+    llm_tokenizer.save_pretrained(merge_model_args.merge_save_path)
+
+    # 打印日志
     logger.info('Merge Model {} saved successfully! PEFT checkout path:::{}! Merge Model path::: {}'.format(
         merge_model_args.llm_model_name, 
         merge_model_args.peft_checkpoint_path, 
