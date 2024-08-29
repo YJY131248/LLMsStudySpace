@@ -36,22 +36,29 @@ class FinetuneArguments:
 
 
 # 加载LLMs model/tokenizer
-def get_base_llm_model_tokenizer(finetune_args, merge_model_path=None, use_merge_model=False):
+def get_base_llm_model_tokenizer(finetune_args):
     # 读取模型类型
     llm_model_name = finetune_args.llm_model_name
     llm_model_path = finetune_args.llm_model_path
-    # 如果use_merge_model为True，替换llm_model_path
-    if use_merge_model:
-        llm_model_path = merge_model_path if merge_model_path else finetune_args.llm_model_path
+
     # 加载llm_model
     if llm_model_name == "Qwen" or llm_model_name == "BaiChuan":
-        model = AutoModelForCausalLM.from_pretrained(llm_model_path, low_cpu_mem_usage=True, torch_dtype=torch.half)
+        model = AutoModelForCausalLM.from_pretrained(
+            llm_model_path, 
+            low_cpu_mem_usage=True, 
+            torch_dtype=torch.half
+        )
     elif llm_model_name == "ChatGLM":
-        model = AutoModel.from_pretrained(llm_model_path, low_cpu_mem_usage=True, torch_dtype=torch.half)
+        model = AutoModel.from_pretrained(
+            llm_model_path, 
+            low_cpu_mem_usage=True, 
+            torch_dtype=torch.half
+        )
     # 模型不是为本项目支持的模型
     else:
         logger.error("错误参数：底座模型必须是Qwen/ChatGLM/BaiChuan")
         raise ValueError("错误参数：底座模型必须是Qwen/ChatGLM/BaiChuan")
+
     # 配置模型
     model.gradient_checkpointing_enable()
     model.enable_input_require_grads()
@@ -59,6 +66,7 @@ def get_base_llm_model_tokenizer(finetune_args, merge_model_path=None, use_merge
     model.model_parallel = True
     # 加载tokenizer
     tokenizer = AutoTokenizer.from_pretrained(llm_model_path)
+
     return model, tokenizer
 
 
