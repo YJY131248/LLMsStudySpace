@@ -6,7 +6,7 @@ mlx worker launch -- python3 ../src/finetune.py \
     --log_path ../out/lora_output.log \
     --max_length 256 \
     --lora_rank 4 \
-    --output_dir ../out/lora_peft \
+    --output_dir ../log/lora_peft \
     --per_device_train_batch_size 1 \   
     --per_device_eval_batch_size 1 \
     --num_train_epochs 1 \
