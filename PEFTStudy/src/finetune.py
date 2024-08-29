@@ -61,11 +61,11 @@ def get_base_llm_model_tokenizer(finetune_args):
         raise ValueError("错误参数：底座模型必须是Qwen/ChatGLM/BaiChuan")
 
     # 配置模型
-    model.gradient_checkpointing_enable()
+    if finetune_args.peft_type != "prefix-tuning":
+        model.gradient_checkpointing_enable()
     model.enable_input_require_grads()
     model.is_parallelizable = True
     model.model_parallel = True
-    model.config.use_cache = False
     # 加载tokenizer
     tokenizer = AutoTokenizer.from_pretrained(llm_model_path)
 
