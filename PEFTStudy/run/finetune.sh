@@ -1,17 +1,23 @@
-mlx worker launch -- python3 ../src/finetune.py \
+torchrun --nproc_per_node=4 --master_port=29501 ../src/finetune.py \
     --peft_type lora \
     --llm_model_name Qwen \
-    --llm_model_path ../../../model/Qwen2-7B-Instruct \
-    --dataset_path ../data/alpaca_gpt4_data_zh.json \
-    --log_path ../log/lora_output.log \
-    --max_length 256 \
-    --lora_rank 4 \
+    --llm_model_path ../model/qwen2.5-7b-instruct \
+    --dataset_path ../data/trainset/sft_dataset_augmentation.json \
+    --log_path ../log/qwen_lora_model_finetune.log \
+    --max_length 1024 \
+    --lora_rank 8 \
+    --lora_alpha 16 \
     --output_dir ../out/lora_peft \
-    --per_device_train_batch_size 1 \
-    --num_train_epochs 1 \
+    --per_device_train_batch_size 8 \
+    --num_train_epochs 5 \
     --learning_rate 1e-4 \
-    --max_steps 2400 \
-    --save_steps 240 \
+    --lr_scheduler_type cosine \
+    --save_steps 100 \
     --save_total_limit 10 \
     --logging_steps 10 \
-    --gradient_accumulation_steps 16 \
+    --gradient_accumulation_steps 1 \
+    --warmup_ratio 0.05 \
+    --deepspeed ./ds_config_zero2.json \
+    --ddp_find_unused_parameters False \
+    --gradient_checkpointing True \
+    --dataloader_num_workers 4
