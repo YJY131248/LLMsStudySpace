@@ -49,13 +49,35 @@ def get_llm_model_tokenizer(llm_model_name, llm_model_path, peft_type):
     """
 
     try:
-        if llm_model_name in ["Qwen", "BaiChuan", "Mistral", "Llama"]:
+        if llm_model_name in ["Qwen", "Mistral", "Gemma"]:
+            model = AutoModelForCausalLM.from_pretrained(
+                llm_model_path, 
+                low_cpu_mem_usage=True, 
+                torch_dtype=torch.float16
+            )
+            tokenizer = AutoTokenizer.from_pretrained(llm_model_path)
+        elif llm_model_name == "Llama":
+            model = AutoModelForCausalLM.from_pretrained(
+                llm_model_path,
+                low_cpu_mem_usage=True,
+                torch_dtype=torch.float16
+            )
+            tokenizer = AutoTokenizer.from_pretrained(
+                llm_model_path, 
+                legacy=True,
+                use_fast=False,
+                padding_side="right"
+            )
+            if tokenizer.pad_token is None:
+                tokenizer.pad_token = tokenizer.eos_token
+        elif llm_model_name == "BaiChuan":
             model = AutoModelForCausalLM.from_pretrained(
                 llm_model_path, 
                 low_cpu_mem_usage=True, 
                 torch_dtype=torch.float16,
                 trust_remote_code=True
             )
+            tokenizer = AutoTokenizer.from_pretrained(llm_model_path, trust_remote_code=True)
         elif llm_model_name == "ChatGLM":
             model = AutoModel.from_pretrained(
                 llm_model_path, 
@@ -63,25 +85,20 @@ def get_llm_model_tokenizer(llm_model_name, llm_model_path, peft_type):
                 torch_dtype=torch.float16,
                 trust_remote_code=True
             )
-        elif llm_model_name == "Gemma":
-            model = AutoModelForCausalLM.from_pretrained(
+            tokenizer = AutoTokenizer.from_pretrained(
                 llm_model_path, 
-                low_cpu_mem_usage=True, 
-                torch_dtype=torch.float16,
-                attn_implementation="flash_attention_2",
                 trust_remote_code=True
             )
         else:
             logger.error(f"Invalid model: Supported models are Qwen, ChatGLM, BaiChuan, Mistral, Llama, Gemma")
             raise ValueError(f"Invalid model: Supported models are Qwen, ChatGLM, BaiChuan, Mistral, Llama, Gemma")
         
-        if peft_type != "prefix-tuning":
+        if peft_type != "prefix-tuning" and llm_model_name != "ChatGLM":
             model.gradient_checkpointing_enable()
         model.enable_input_require_grads()
         model.is_parallelizable = True
         model.model_parallel = True
 
-        tokenizer = AutoTokenizer.from_pretrained(llm_model_path, trust_remote_code=True)
         return model, tokenizer
     
     except Exception as e:
