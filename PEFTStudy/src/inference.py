@@ -54,12 +54,19 @@ def get_llm_response(
     # set the response map
     llm_response_mp = {}
     for query in tqdm(query_list):
-        messages = [
-            {"role": "system", "content": "You are a helpful assistant."},
-            {"role": "user", "content": query}
-        ]
-        messages = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        try:
+            # qwen/llama/mistral/glm
+            messages = [
+                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "user", "content": query}
+            ]
+            messages = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        except:
+            # baichuan
+            messages = f"Human:{query}\nYou are a helpful assistant.\n\nAssistant: "
+        # encode the input
         model_inputs = tokenizer([messages], return_tensors="pt").to(model.device)
+        # update the generate kwargs
         generate_kwargs = {
             "max_new_tokens": 1024,
             "do_sample": False,
@@ -68,17 +75,14 @@ def get_llm_response(
             "repetition_penalty": 1.2,
             "eos_token_id": model.config.eos_token_id,
         }
-        # update the generate kwargs
         generate_kwargs.update(kwargs)
         # generate the response
-        generated_ids = model.generate(
-            model_inputs.input_ids,
-            **generate_kwargs
-        )
+        generated_ids = model.generate(model_inputs.input_ids, **generate_kwargs)
         generated_ids = [
             output_ids[len(input_ids):] for input_ids, output_ids in zip(model_inputs.input_ids, generated_ids)
         ]
         llm_response_mp[query] = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
+        
     return llm_response_mp
 
 def main():
