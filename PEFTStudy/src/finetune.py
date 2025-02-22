@@ -49,13 +49,15 @@ def get_llm_model_tokenizer(llm_model_name, llm_model_path, peft_type):
     """
 
     try:
-        if llm_model_name in ["Qwen", "Mistral", "Gemma"]:
+        if llm_model_name in ["Qwen", "Mistral", "Yi"]:
             model = AutoModelForCausalLM.from_pretrained(
                 llm_model_path, 
                 low_cpu_mem_usage=True, 
                 torch_dtype=torch.float16
             )
             tokenizer = AutoTokenizer.from_pretrained(llm_model_path)
+            if tokenizer.pad_token is None:
+                tokenizer.pad_token = tokenizer.eos_token
         elif llm_model_name == "Llama":
             model = AutoModelForCausalLM.from_pretrained(
                 llm_model_path,
@@ -89,6 +91,15 @@ def get_llm_model_tokenizer(llm_model_name, llm_model_path, peft_type):
                 llm_model_path, 
                 trust_remote_code=True
             )
+        elif llm_model_name == "Gemma":
+            model = AutoModelForCausalLM.from_pretrained(
+                llm_model_path, 
+                low_cpu_mem_usage=True, 
+                torch_dtype=torch.float16
+            )
+            tokenizer = AutoTokenizer.from_pretrained(llm_model_path)
+            if tokenizer.pad_token is None:
+                tokenizer.pad_token = tokenizer.eos_token
         else:
             logger.error(f"Invalid model: Supported models are Qwen, ChatGLM, BaiChuan, Mistral, Llama, Gemma")
             raise ValueError(f"Invalid model: Supported models are Qwen, ChatGLM, BaiChuan, Mistral, Llama, Gemma")
@@ -102,8 +113,7 @@ def get_llm_model_tokenizer(llm_model_name, llm_model_path, peft_type):
         return model, tokenizer
     
     except Exception as e:
-        logger.error(f"Error loading model: {e}")
-        raise e
+        raise "Failed to load model: {}".format(e)
 
 # Configure PEFT
 def get_peft_config(peft_type, tokenizer, finetune_args):
@@ -116,9 +126,14 @@ def get_peft_config(peft_type, tokenizer, finetune_args):
         PEFT configuration object
     """
     if peft_type == "lora":
+        target_modules = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+        if finetune_args.llm_model_name == "BaiChuan":
+            target_modules = ["W_pack", "W_unpack", "W_proj", "W_o", "W_gate", "W_up", "W_down"]
+        if finetune_args.llm_model_name == "ChatGLM":
+            target_modules = ["query_key_value"]
         return LoraConfig(
             task_type=TaskType.CAUSAL_LM,
-            target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+            target_modules=target_modules,
             inference_mode=False,
             r=finetune_args.lora_rank,
             lora_alpha=finetune_args.lora_alpha,
