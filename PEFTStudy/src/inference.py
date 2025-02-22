@@ -17,9 +17,9 @@ class InferenceArguments:
     peft_type: str = field(default="lora")
     llm_model_name: str = field(default="Qwen")
     llm_model_path: str = field(default="../model/Qwen2-7B-Instruct")
-    peft_model_path: str = field(default="../out/lora_peft/checkpoint-3000/")
+    peft_model_path: str = field(default="../out/car_lora_model/checkpoint-3000/")
     use_peft_model: bool = field(default=False)
-    log_path: str = field(default="../log/model_inference.log")
+    log_path: str = field(default="../log/car_model_inference.log")
     max_new_tokens: int = field(default=1024)
     do_sample: bool = field(default=False)
     top_p: float = field(default=0.1)
@@ -74,15 +74,20 @@ def get_llm_response(
             "temperature": 0.8,
             "repetition_penalty": 1.2,
             "eos_token_id": model.config.eos_token_id,
+            "pad_token_id": tokenizer.eos_token_id
         }
         generate_kwargs.update(kwargs)
         # generate the response
-        generated_ids = model.generate(model_inputs.input_ids, **generate_kwargs)
-        generated_ids = [
-            output_ids[len(input_ids):] for input_ids, output_ids in zip(model_inputs.input_ids, generated_ids)
-        ]
-        llm_response_mp[query] = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
-        
+        try:
+            generated_ids = model.generate(**model_inputs, **generate_kwargs)
+            generated_ids = [
+                output_ids[len(input_ids):] for input_ids, output_ids in zip(model_inputs.input_ids, generated_ids)
+            ]
+            llm_response_mp[query] = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
+        except:
+            llm_response_mp[query] = "-1"
+            continue
+
     return llm_response_mp
 
 def main():
